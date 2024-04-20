@@ -1,20 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const session = require('express-session');
 require('dotenv').config()
 const bcrypt = require('bcryptjs')
 const extraBcryptString = process.env.EXTRA_BCRYPT_STRING
 const jwt = require("jsonwebtoken");
-const jwtString = process.env.JWT_STRING
 const mongoose = require('mongoose')
 const Schema = mongoose.Schema
 
 const userSchema = new Schema({
   email: { type: String, required: true },
   password: { type: String, required: true },
-  ourId: { type: String, required: true },
-  balance: { type: Number, required: true, default: 0.00 },
-  tag: {type: String, required: false},
   purchases: [{
     productId: { type: Schema.Types.ObjectId, ref: 'Item' },
     name: { type: String, required: true },
@@ -63,7 +58,7 @@ router.post('/signin', async (req, res, next) => {
       return res.status(401).json({ success: false, msg: 'Error, please check your email and password' });
     }
 
-    const token = jwt.sign({ email: user.email, userId: user._id }, jwtSecret, { expiresIn: '5s' });
+    const token = jwt.sign({ email: user.email, userId: user._id }, jwtSecret, { expiresIn: '1h' });
     req.session.isLoggedIn = true;
     res.status(200).json({ success: true, token, user });
   } catch (error) {
@@ -98,8 +93,6 @@ router.post('/signup', async (req, res, next) => {
     const newUser = new User({
       email,
       password: hashedPassword,
-      ourId: '' + nextUserId,
-      balance: 0.00,
       cart: []
     });
     nextUserId++;
@@ -175,34 +168,9 @@ router.get('/clearCart', async (req, res, next) => {
 });
 
 
-router.post('/topup', checkAuth, async (req, res, next) => {
-    const { amount } = req.body;
-    const userId = req.userId;
-    console.log(userId)
-
-    try {
-        const user = await User.findById(userId);
-
-        if (!user) {
-            return res.status(404).json({ success: false, msg: 'User not found' });
-        }
-        user.balance = (parseFloat(user.balance) + parseFloat(amount)).toFixed(2);
-
-        await user.save();
-        console.log(user)
-        res.status(200).json({ success: true, user });
-    } catch (error) {
-        console.error('Error during top-up:', error);
-        res.status(500).json({ success: false, msg: 'Internal server error' });
-    }
-});
-
-
 const itemSchema = new Schema({
   name: { type: String, required: true },
-  price: { type: Number, required: true },
-  stock: { type: Number, required: true },
-  productCode: { type: String, required: true }
+  price: { type: Number, required: true }
 });
 
 const Item = mongoose.model('Item', itemSchema);
@@ -218,7 +186,7 @@ router.get('/items', async (req, res, next) => {
 });
 
 
-router.post('/buyProduct', checkAuth, async (req, res, next) => {
+router.post('/addFlight', checkAuth, async (req, res, next) => {
   console.log('Request body:', req.body);
   const { tag, otherTags } = req.body; 
   const userTag = tag.tag;
@@ -296,6 +264,86 @@ router.get('/viewCart', checkAuth, async (req, res, next) => {
   }
 });
 
+
+router.get('/getDestinationID', checkAuth, async (req, res) => {
+  const { destination } = req.query;
+  console.log("Revieved: ", destination)
+  const url = new URL('https://booking-com.p.rapidapi.com/v1/hotels/locations');
+  url.searchParams.append('name', destination);
+  url.searchParams.append('locale', 'en-gb');
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': '05a223207amshf68f09ccba1f243p140d08jsn5662b6a0529b',
+        'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("Error from external API:", errorData);
+      return res.status(500).json({ success: false, msg: 'Error fetching destination ID' });
+    }
+
+    const data = await response.json();
+    console.log("Response from external API:", data);
+
+    // Check if data contains valid destination information
+    if (!Array.isArray(data) || data.length === 0 || !data[0].dest_id) {
+      console.error("Invalid destination data received:", data);
+      return res.status(500).json({ success: false, msg: 'Destination not found' });
+    }
+    console.log(data);
+    const destinationID = data[0].dest_id;
+
+    res.status(200).json({ success: true, destinationID });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+router.get('/getHotels', checkAuth, async (req, res) => {
+  const { hotelID } = req.query;
+  const url = new URL('https://booking-com.p.rapidapi.com/v1/hotels/search');
+  url.searchParams.append('checkout_date', '2024-09-20');
+  url.searchParams.append('order_by', 'popularity');
+  url.searchParams.append('filter_by_currency', 'EUR');
+  url.searchParams.append('room_number', '1');
+  url.searchParams.append('dest_id', hotelID);
+  url.searchParams.append('dest_type', 'city');
+  url.searchParams.append('adults_number', '2');
+  url.searchParams.append('checkin_date', '2024-09-14');
+  url.searchParams.append('locale', 'en-gb');
+  url.searchParams.append('units', 'metric');
+  url.searchParams.append('include_adjacency', 'true');
+  url.searchParams.append('children_number', '2');
+  url.searchParams.append('page_number', '0');
+  
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': '05a223207amshf68f09ccba1f243p140d08jsn5662b6a0529b',
+        'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+      },
+    });
+   
+    if (!response.ok) {
+      return res.status(500).json({ success: false, msg: "Error Fetching Hotels" });
+    }
+    
+    const fetchedHotels = await response.json();
+    console.log(fetchedHotels);
+
+    res.status(200).json({ success: true, fetchedHotels });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 
 
 exports.routes = router
