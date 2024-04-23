@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const session = require('express-session');
 require('dotenv').config()
 const bcrypt = require('bcryptjs')
 const extraBcryptString = process.env.EXTRA_BCRYPT_STRING
 const jwt = require("jsonwebtoken");
-const jwtString = process.env.JWT_STRING
 const mongoose = require('mongoose')
 const Schema = mongoose.Schema
 const OpenAI = require("openai")
@@ -64,7 +62,7 @@ router.post('/signin', async (req, res, next) => {
     }
 
     const token = jwt.sign({ email: user.email, userId: user._id }, jwtSecret, { expiresIn: '1h' });
-    req.session.isLoggedIn = true;
+
     res.status(200).json({ success: true, token, user });
   } catch (error) {
     console.error('Error signing in:', error);
@@ -326,7 +324,7 @@ router.get('/getHotels', checkAuth, async (req, res) => {
   url.searchParams.append('include_adjacency', 'true');
   url.searchParams.append('children_number', '2');
   url.searchParams.append('page_number', '0');
-
+  
   try {
     const response = await fetch(url.toString(), {
       method: 'GET',
@@ -335,10 +333,11 @@ router.get('/getHotels', checkAuth, async (req, res) => {
         'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
       },
     });
-
+   
     if (!response.ok) {
       return res.status(500).json({ success: false, msg: "Error Fetching Hotels" });
     }
+    
 
     const fetchedHotels = await response.json();
     console.log(fetchedHotels);
@@ -469,7 +468,5 @@ router.get('/getAirportId', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-
-
 
 exports.routes = router
