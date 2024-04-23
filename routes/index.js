@@ -59,7 +59,6 @@ router.post('/signin', async (req, res, next) => {
     }
 
     const token = jwt.sign({ email: user.email, userId: user._id }, jwtSecret, { expiresIn: '1h' });
-    req.session.isLoggedIn = true;
     res.status(200).json({ success: true, token, user });
   } catch (error) {
     console.error('Error signing in:', error);
