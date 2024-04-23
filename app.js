@@ -18,7 +18,7 @@ app.use(session({secret: 'my secret', resave: false, saveUninitialized: false}))
 app.use('/', index.routes)
 
 mongoose.set('strictQuery', true)
-mongoose.connect('mongodb://127.0.0.1:27017/db3')
+mongoose.connect('mongodb://127.0.0.1:27017/db')
     .then(res => {
         console.log('Connected!');
         app.listen(3000)

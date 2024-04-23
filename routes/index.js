@@ -6,6 +6,9 @@ const extraBcryptString = process.env.EXTRA_BCRYPT_STRING
 const jwt = require("jsonwebtoken");
 const mongoose = require('mongoose')
 const Schema = mongoose.Schema
+const OpenAI = require("openai")
+require("dotenv").config()
+const openai = new OpenAI({ apiKey: process.env.OPENAI_KEY })
 
 const userSchema = new Schema({
   email: { type: String, required: true },
@@ -18,7 +21,7 @@ const userSchema = new Schema({
   }]
 })
 
-userSchema.statics.findByTag = async function(tag) {
+userSchema.statics.findByTag = async function (tag) {
   const user = await this.findOne({ tag: tag });
   return user;
 };
@@ -59,6 +62,7 @@ router.post('/signin', async (req, res, next) => {
     }
 
     const token = jwt.sign({ email: user.email, userId: user._id }, jwtSecret, { expiresIn: '1h' });
+
     res.status(200).json({ success: true, token, user });
   } catch (error) {
     console.error('Error signing in:', error);
@@ -121,9 +125,9 @@ function checkAuth(req, res, next) {
     if (err) {
       if (err instanceof jwt.TokenExpiredError) {
         res.setHeader('Authorization', '');
-        return res.status(401).json({ success: false});
+        return res.status(401).json({ success: false });
       }
-      return res.status(401).json({ success: false});
+      return res.status(401).json({ success: false });
     }
     req.userId = decoded.userId;
     next();
@@ -135,7 +139,7 @@ router.get('/showUsers', async (req, res, next) => {
     let allEmails = "";
     const users = await User.find();
     console.log(users)
-    users.forEach((user => { 
+    users.forEach((user => {
       allEmails += user.email;
     }))
 
@@ -187,7 +191,7 @@ router.get('/items', async (req, res, next) => {
 
 router.post('/addFlight', checkAuth, async (req, res, next) => {
   console.log('Request body:', req.body);
-  const { tag, otherTags } = req.body; 
+  const { tag, otherTags } = req.body;
   const userTag = tag.tag;
 
   try {
@@ -196,7 +200,7 @@ router.post('/addFlight', checkAuth, async (req, res, next) => {
       console.log('User not found');
       return res.status(404).json({ success: false, msg: 'User not found' });
     }
-    
+
     console.log('User found:', user);
 
     let totalPrice = 0;
@@ -204,7 +208,7 @@ router.post('/addFlight', checkAuth, async (req, res, next) => {
 
     for (const otherTag of otherTags) {
       const product = await Item.findOne({ productCode: otherTag });
-      
+
       if (product) {
         console.log('Product found:', product);
         totalPrice += product.price;
@@ -334,6 +338,7 @@ router.get('/getHotels', checkAuth, async (req, res) => {
       return res.status(500).json({ success: false, msg: "Error Fetching Hotels" });
     }
     
+
     const fetchedHotels = await response.json();
     console.log(fetchedHotels);
 
@@ -344,5 +349,124 @@ router.get('/getHotels', checkAuth, async (req, res) => {
   }
 });
 
+router.post('/usersAnswers', async (req, res, next) => {
+  try {
+
+
+  let location = await createHolidayLocation({ answer1: req.body.answer1, answer2: req.body.answer2, answer3: req.body.answer3 })
+ let plan = await createHolidayPlan({ location: location.holidayLocations, departure: req.body.depart, return: req.body.return })
+//res.json(location)
+   res.json({ destination: location.holidayLocations, itinerary: plan.holidayPlan })
+  }catch(err){
+    console.error('Error prompting chat gpt:', error);
+    res.status(500).json({ success: false, msg: 'Internal server error' });
+  }
+
+})
+
+async function createHolidayLocation(answers) {
+  let generatedArray = []
+  try {
+    let aiArray = await openai.chat.completions.create({
+      messages: [
+        { "role": "system", "content": "You are a helpful assistant. Please respond in JSON format" },
+        { "role": "user", "content": "Based on the answers to the following questions, create a JSON array called holidayLocations, where holidayLocations return a holiday location in Europe that would suit the answers. Only reply with the location. Q: Do you prefer a beach holiday or city holiday? A: " + answers.answer1 + "Q: Do you prefer late nights or early morning activities? A: " + answers.answer2 + "Q: Do you prefer holidays with small groups of people or large groups of people? A: " + answers.answer3 },
+      ],
+      response_format: { type: "json_object" },
+      model: "gpt-3.5-turbo-1106"
+    })
+    //generatedText = aiArray.choices[0].message.content
+    //console.log(generatedText)
+    generatedArray = JSON.parse(aiArray.choices[0].message.content)
+  } catch (err) {
+    console.log('GPT err createSearchPhrases: ' + err)
+  }
+  return generatedArray
+}
+
+async function createHolidayPlan(params) {
+  let generatedArray = []
+  try {
+    let aiArray = await openai.chat.completions.create({
+      messages: [
+        { "role": "system", "content": "You are a helpful assistant. Please respond in JSON format" },
+        { "role": "user", "content": "Based on the answers to the following location, departure date, and return date, create a JSON array called holidayPlan, where holidayPlan will return two keys, day and attraction an itinerary that involves popular tourist attractions. Location:  " + params.location + "departure date: " + params.departure + "return date: " + params.return }
+      ],
+      response_format: { type: "json_object" },
+      model: "gpt-3.5-turbo-1106"
+    })
+    generatedArray = JSON.parse(aiArray.choices[0].message.content)
+  } catch (err) {
+    console.log('GPT err createSearchPhrases: ' + err)
+  }
+  return generatedArray
+}
+
+
+
+router.get('/getFlights', async (req, res) => {
+  const url = new URL('https://booking-com18.p.rapidapi.com/flights/search-return');
+  url.searchParams.append('fromId', 'DUB');
+  url.searchParams.append('toId', req.query.airportId);
+  url.searchParams.append('departureDate', req.query.depart);
+  url.searchParams.append('returnDate',  req.query.returnDate);
+  url.searchParams.append('page', '1');
+  url.searchParams.append('cabinClass', 'ECONOMY');
+  url.searchParams.append('adults', '1');
+  url.searchParams.append('children', '0');
+  url.searchParams.append('infants', '0');
+  url.searchParams.append('units', 'metric');
+  url.searchParams.append('nonstopFlightsOnly', 'true');
+  url.searchParams.append('numberOfStops', 'nonstop_flights');
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': '79808a0f5dmsh57fcfa9b19ef13bp1e2e25jsn049f305a2e89',
+        'X-RapidAPI-Host': 'booking-com18.p.rapidapi.com'
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(500).json({ success: false, msg: "Error Fetching Flights" });
+    }
+
+    const fetchedFlights = await response.json();
+
+    res.status(200).json({ success: true,  fetchedFlights });
+  } catch (err) {
+    console.error("err");
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
+router.get('/getAirportId', async (req, res) => {
+  const { location } = req.query
+  const url = new URL('https://booking-com18.p.rapidapi.com/flights/auto-complete');
+  url.searchParams.append('query', location);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': '79808a0f5dmsh57fcfa9b19ef13bp1e2e25jsn049f305a2e89',
+        'X-RapidAPI-Host': 'booking-com18.p.rapidapi.com'
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(500).json({ success: false, msg: "Error Fetching Flights" });
+    }
+    
+
+    const airportsFound = await response.json();
+    res.status(200).json({ success: true, airports: airportsFound.data });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 
 exports.routes = router
