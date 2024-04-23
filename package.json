@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.0",
     "mongodb": "^5.0.1",
     "mongoose": "^6.10.0",
+    "openai": "^4.30.0",
     "uuid": "^9.0.1"
   }
 }
